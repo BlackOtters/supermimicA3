@@ -123,6 +123,8 @@ a3-sm-data validate /path/to/library
 
 最新训练使用筛选后的数据；本仓库只保留转换/筛选代码与数据接口，不隐式下载或绑定数据集。
 
+仅使用筛选后的 LAFAN 训练：见 [数据提取与四卡启动说明](docs/lafan_training.md)。
+
 ## 日志、恢复与评测
 
 每次训练保存在 `logs/<RUN_NAME>/`：`config.json`、`contract.json`、`metrics.jsonl`、
