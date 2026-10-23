@@ -10,13 +10,14 @@ from a3_supermimic.data.replay_buffer import StartBatch
 from a3_supermimic.envs.mdp.motion_library import MotionLibrary
 from a3_supermimic.imagination.compiled import REWARD_TERM_NAMES, ImagStep
 from a3_supermimic.policy.nets import Policy
-from a3_supermimic.world_model.heads import ReferenceFrame, anchor_relative_orientation, flatten_history_term_major
+from a3_supermimic.world_model.heads import ReferenceFrame, anchor_relative_orientation, anchor_relative_pose, flatten_history_term_major
 from a3_supermimic.world_model.wm_trainer import reference_at
 from a3_supermimic.world_model.world_model import WorldModel
 
 # SONIC 035 / paper Table A.1 sensor noise, shared with the simulator.
 OBS_NOISE_HALF = torch.tensor([0.01] * 29 + [0.5] * 29 + [0.2] * 3 + [0.05] * 3 + [0.0] * 29)
 ANCHOR_NOISE_HALF = torch.tensor([0.05] * 6)
+ANCHOR_POSE_NOISE_HALF = torch.tensor([0.25] * 3 + [0.05] * 6)
 
 
 @dataclass
@@ -42,13 +43,14 @@ def imagine(
     obs_noise: bool = True,
     step_fn: ImagStep | None = None,
     anchor_obs: bool = False,
+    anchor_position: bool = False,
 ) -> ImagRollout:
     device = start.state.device
     n = start.state.shape[0]
     q0 = lib.default_joint_pos
     step_fn = step_fn or ImagStep(wm, q0)
     noise_half = OBS_NOISE_HALF.to(device)
-    anchor_noise_half = ANCHOR_NOISE_HALF.to(device)
+    anchor_noise_half = (ANCHOR_POSE_NOISE_HALF if anchor_position else ANCHOR_NOISE_HALF).to(device)
     ai = wm.heads.observation_anchor_index
 
     def add_noise(o):
@@ -56,11 +58,12 @@ def imagine(
             return o + (torch.rand_like(o) * 2 - 1) * noise_half
         return o
 
-    def make_goal(frame_t, ref_t, anchor_quat):
+    def make_goal(frame_t, ref_t, anchor_pos, anchor_quat):
         g = lib.goal_window(frame_t, future_frames)
         if not anchor_obs:
             return g
-        rel = anchor_relative_orientation(anchor_quat, ref_t.body_quat_w[..., ai, :])
+        rel = (anchor_relative_pose(anchor_pos, anchor_quat, ref_t.body_pos_w[..., ai, :], ref_t.body_quat_w[..., ai, :])
+               if anchor_position else anchor_relative_orientation(anchor_quat, ref_t.body_quat_w[..., ai, :]))
         if obs_noise:
             rel = rel + (torch.rand_like(rel) * 2 - 1) * anchor_noise_half
         return torch.cat([g, rel], dim=-1)
@@ -90,9 +93,10 @@ def imagine(
     if anchor_obs:
         b0 = wm.heads.robot_bodies(s)
         anchor_quat = b0["quat"][..., ai, :]
+        anchor_pos = b0["pos"][..., ai, :]
     else:
-        anchor_quat = None
-    goals = [make_goal(frame, ref, anchor_quat)]
+        anchor_pos = anchor_quat = None
+    goals = [make_goal(frame, ref, anchor_pos, anchor_quat)]
     e_roots = [wm.heads.root_error_features(s, ref)]
     term_sum = torch.zeros(len(REWARD_TERM_NAMES), device=device)
 
@@ -100,7 +104,7 @@ def imagine(
         obs_flat = flatten_history_term_major(torch.stack(hist, 0))
         a = policy(obs_flat, goals[-1])
         executed = a if wm.heads.layout.compact else torch.cat((a, lib.head_targets(frame)), -1)
-        s_next, r, term_vec, d, obs_clean, anchor_quat = step_fn(s, executed, a_prev, start.xi, ref)
+        s_next, r, term_vec, d, obs_clean, anchor_pos, anchor_quat = step_fn(s, executed, a_prev, start.xi, ref)
         c = c * (1.0 - d)
         term_sum += term_vec.detach().mean(-1)
 
@@ -114,7 +118,7 @@ def imagine(
         rewards.append(r)
         dhats.append(d)
         survivals.append(c)
-        goals.append(make_goal(frame, ref, anchor_quat))
+        goals.append(make_goal(frame, ref, anchor_pos, anchor_quat))
         e_roots.append(wm.heads.root_error_features(s, ref))
         frames.append(frame)
 

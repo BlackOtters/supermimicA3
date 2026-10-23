@@ -99,11 +99,13 @@ class ReplayBuffer:
         if self.count % self.capacity == 0:
             self._compact_contexts()
 
-    def _candidates(self, n, span, *, windows):
+    def _candidates(self, n, span, *, windows, history=1):
         available = min(self.count, self.capacity)
         if available < span:
             raise RuntimeError(f"Replay needs {span} contiguous steps, has {available}")
         oldest = self.count - available
+        if not windows and self.count > self.capacity:
+            oldest += history - 1  # Exclude starts whose real history has been overwritten.
         picked_t, picked_e, remaining = [], [], n
         offsets = torch.arange(span, device=self.device)[:, None]
         for _ in range(64):
@@ -136,7 +138,7 @@ class ReplayBuffer:
 
     def sample_starts(self, n, history):
         # Reconstruct reset-padded history rather than discarding short episodes.
-        t, e = self._candidates(n, 1, windows=False)
+        t, e = self._candidates(n, 1, windows=False, history=history)
         first = max(0, self.count-self.capacity)
         hist_t = (t[None] - torch.arange(history-1, -1, -1, device=self.device)[:, None]).clamp_min(first)
         episode = self.episode[t % self.capacity, e]

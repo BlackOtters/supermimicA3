@@ -46,3 +46,24 @@ def make_compact_rigid_cfg(backend):
 
 
 Registry.instance().register('asset', 'a3-supermimic-compact-rigid', make_compact_rigid_cfg)
+
+
+def retargeted_rigid_spec():
+    spec = compact_rigid_spec()
+    for geom in spec.geoms:
+        if geom.contype or geom.conaffinity:
+            foot = 'foot' in geom.name and 'collision' in geom.name
+            geom.contype, geom.conaffinity = 1, 0
+            geom.condim = 3 if foot else 1
+            geom.priority = 1 if foot else 0
+    return spec
+
+
+def make_retargeted_rigid_cfg(backend):
+    cfg, sensors = make_compact_rigid_cfg(backend)
+    cfg.spec_fn = retargeted_rigid_spec
+    cfg.collisions = ()  # Keep the explicit masks, including on unnamed body geoms.
+    return cfg, sensors
+
+
+Registry.instance().register('asset', 'a3-supermimic-retargeted-rigid', make_retargeted_rigid_cfg)

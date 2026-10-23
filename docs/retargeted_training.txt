@@ -1,0 +1,55 @@
+v10 retargeted-aligned LAFAN recipe
+
+Reference: tianshuwu/supermimic-retargeted
+Pinned commit: ff69a0e5305126eb5b80b323bcd815805bc3df4e
+https://github.com/tianshuwu/supermimic-retargeted/blob/ff69a0e/docs/EXPERIMENTS.md
+
+User decision: retain rigid A3 Ultra with 29 controlled joints. This is an Ultra adaptation of the reference recipe, not a claim to reproduce its ordinary-A3 31-joint scores.
+
+Run on four GPUs in DLC:
+
+  cd /cpfs01/user/pingpong/wentao/supermimicA3
+  env -u RESUME -u BUNDLE_ROOT \
+    PYTHON=/cpfs01/user/pingpong/wentao/opt/venvs/supermimic_swanlab/bin/python \
+    SWANLAB_API_KEY_FILE=/cpfs01/user/pingpong/wentao/.secrets/swanlab_api_key \
+    CUDA_VISIBLE_DEVICES=0,1,2,3 \
+    bash scripts/train_retargeted_lafan.sh
+
+The wrapper defaults DATA_DIR to this repository's data/lafan_filtered_v2, checks the filtered LAFAN manifest, and starts a new named run. SwanLab remains enabled; JSONL/TensorBoard are recorded locally as well. Do not include secrets in logs or tracked files. NCCL P2P and CUMEM-host workarounds remain enabled by default.
+
+Comparison settings:
+- four ranks, 2048 environments/rank = 8192 global (reference: two ranks x4096);
+- actor and each WM minibatch 1024/rank =4096 global (reference: two x2048);
+- replay 512 vector steps per environment;
+- effective actor/WM/critic initial LR 0.000282842712474619, cosine schedule unchanged;
+- K10, history10, H32, WM k8, UTD .4, 10 WM minibatches per actor update;
+- critic 5 epochs x4 minibatches, gamma .99, GAE lambda .95;
+- initial replay fill 40 environment steps; WM-only rounds 0;
+- state71, context33, action29, policy history930, goal689 (680 + torso position3/orientation6);
+- source matching model masses, inertias, torque limits, nominal PD gains, rigid ankles and welded head/hands;
+- action scale derived from actual Ultra stiffness and effort: ankle pitch .4925, ankle roll .228125;
+- robot-ground contacts enabled, robot self-collision disabled; foot condim3/priority1, body condim1;
+- soft joint position limits .9 for all policy joints; physics/control 200/50 Hz, Newton10;
+- learned termination MLP64/64, signed normalized height/tilt plus their magnitudes, BCE weight1;
+- real termination stays height .25m / projected-gravity-z difference .8; no end-effector failure;
+- TF32 enabled using the legacy flags consistently: the pinned Torch2.10 Inductor reads those flags and rejects mixing them with newer mjlab precision setters;
+- COM startup randomization, foot friction and encoder bias at reset, same observation/action/reset noise;
+- numerical action guards and pre-allreduce finiteness checks retained.
+
+The code's corrected transition termination labels are retained; it does not copy upstream's next-row label offset. Replay starts exclude rows whose history was overwritten.
+
+Remaining controlled differences:
+- Ultra29, not ordinary A3 31; Ultra foot spheres, mechanics and fixed joint friction retained.
+- Existing filtered 32 clips (16 originals + mirrors), 1.632 hours, not the other project's 40 freshly retargeted/contact-corrected clips.
+- Fresh WM/policy/critic; the successful archived counterpart used an unpublished earlier WM and optimizer warmstart. No old-physics checkpoint is silently loaded.
+- Current pinned CUDA12.8/PyTorch2.10/MuJoCo3.11/Warp1.12 stack. The reference used a newer stack. Contact capacity remains sufficient for this model.
+- Four independent reset/adaptive-sampling processes, although global batch/env counts match the published two-rank recipe.
+
+This recipe creates contract10; do not resume v8/v9 checkpoints with it. Use each older checkpoint's matching cached source for evaluation/resume. The existing live v9 process is not changed by updating files on disk.
+
+Validation command:
+  PYTHONPATH=src python scripts/smoke.py --retargeted --compile --output /tmp/unique-v10-smoke
+
+The bounded smoke uses synthetic data and small networks; it validates collection, learned termination, BPTT, checkpoint resume, evaluation and export. It does not establish convergence. Evaluate actual training using full-clip failure count, completion fraction and full-length-normalized returns, not survival alone.
+
+Validation completed 2026-10-23: 68 tests passed; CPU launch/config resolution passed; compiled CUDA smoke passed 100 simulator iterations, 8 joint WM/policy updates, checkpoint resume, evaluation and TorchScript export on an RTX 4090. Resolved contract10 and goal689 were checked, as were loaded source paths. Four-rank configuration is verified; the four-GPU training run is left for the user's DLC allocation.

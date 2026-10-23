@@ -41,11 +41,11 @@ class ImagStep:
         terms = self.wm.heads.reward(s_next, a[..., :29], a_prev[..., :29], ref, bodies)
         r = terms["total"]
         term_vec = torch.stack([terms[k] for k in REWARD_TERM_NAMES], dim=0)  # (8, n)
-        termination = self.wm.heads.soft_termination(s_next, ref)
+        termination = self.wm.termination_probability(s_next, ref)
         obs_clean = self.wm.heads.observation(s_next, a, xi)
         ai = self.wm.heads.observation_anchor_index
         anchor_quat = bodies["quat"][..., ai, :]
-        return s_next, r, term_vec, termination, obs_clean, anchor_quat
+        return s_next, r, term_vec, termination, obs_clean, bodies["pos"][..., ai, :], anchor_quat
 
     def __call__(self, s, a, a_prev, xi, ref: ReferenceFrame):
         return self._fn(s, a, a_prev, xi, ref.body_pos_w, ref.body_quat_w, ref.body_lin_vel_w,

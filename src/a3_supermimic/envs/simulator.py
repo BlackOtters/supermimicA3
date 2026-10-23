@@ -15,11 +15,11 @@ from active_adaptation.envs.backends.mjlab.env import MjlabBackendEnv
 from a3_supermimic.kinematics.model import ModelKinematics
 from a3_supermimic.kinematics.rotations import quat_apply
 from a3_supermimic.envs.mdp.reset import ResetCfg, reset_reference
-from a3_supermimic.world_model.heads import AnalyticHeads, flatten_history_term_major, anchor_relative_orientation
+from a3_supermimic.world_model.heads import AnalyticHeads, flatten_history_term_major, anchor_relative_orientation, anchor_relative_pose
 from a3_supermimic.world_model.wm_trainer import reference_at
 from a3_supermimic.envs.mdp.motion_library import MotionLibrary
 from a3_supermimic.envs.context import SimContext, CompactSimContext, TerrainFeatures
-from a3_supermimic.imagination.rollout import OBS_NOISE_HALF, ANCHOR_NOISE_HALF
+from a3_supermimic.imagination.rollout import OBS_NOISE_HALF, ANCHOR_NOISE_HALF, ANCHOR_POSE_NOISE_HALF
 from a3_supermimic.data.replay_buffer import valid_action
 
 
@@ -36,13 +36,21 @@ def task_config(cfg, files):
     # Replace the task interface; retain A3 physics and physical-parameter DR.
     task.name = "A3SuperMimicFourAnkle"
     task.num_envs = cfg.env.num_envs
+    if cfg.env.collision_profile not in ('a3', 'retargeted'):
+        raise ValueError('collision_profile must be a3 or retargeted')
+    if not 0 < cfg.env.waist_soft_limit_factor <= 1 or cfg.env.solver_iterations < 1:
+        raise ValueError('Invalid waist soft-limit factor or solver iterations')
+    if cfg.env.anchor_position and not cfg.env.anchor_obs:
+        raise ValueError('anchor_position requires anchor_obs')
+    task.sim.mjlab_solver_iterations = cfg.env.solver_iterations
     # Full-corpus floor contacts can exceed the parent's 500 constraint slots.
     # Reserve capacity without changing solver iterations or physical parameters.
     task.sim.mjlab_njmax = max(1024, int(task.sim.get("mjlab_njmax", 500)))
     task.max_episode_length = max(1, round(cfg.env.episode_length_s / .02))
     task.command = {"_target_": "a3_supermimic.A3MotionCommand", "files": [str(p) for p in files],
                     "reset_noise": cfg.env.reset_noise, "sampling_mode": cfg.env.sampling_mode,
-                    "allow_synthetic": cfg.data.allow_synthetic, "reset_cfg": asdict(cfg.env.reset)}
+                    "allow_synthetic": cfg.data.allow_synthetic, "reset_cfg": asdict(cfg.env.reset),
+                    "waist_soft_limit_factor": cfg.env.waist_soft_limit_factor}
     task.observation = {}
     task.reward = {}
     task.termination = {}
@@ -106,11 +114,20 @@ def task_config(cfg, files):
         task.name = 'A3SuperMimicCompactRigid'
         task.robot.name = 'a3-supermimic-compact-rigid'
         task.randomization.pop('four_ankle_dr')  # native rigid mechanics, no topology switching hook
+    if cfg.env.collision_profile == 'retargeted':
+        if not compact:
+            raise ValueError('Retargeted collision profile requires compact_rigid')
+        task.robot.name = 'a3-supermimic-retargeted-rigid'
+        # Use actual Ultra gains rather than the ordinary-A3 ankle scale in the base YAML.
+        asset, _ = _compact_robot.make_retargeted_rigid_cfg('mjlab')
+        for actuator in asset.articulation.actuators:
+            name, = actuator.target_names_expr
+            task.input.action.action_scaling[name] = .25 * actuator.effort_limit / actuator.stiffness
     return OmegaConf.create(OmegaConf.to_container(task, resolve=True))
 
 
 class A3MotionCommand(Command, namespace="a3_supermimic"):
-    def __init__(self, env, files, reset_noise=True, sampling_mode="return", allow_synthetic=False, reset_cfg=None):
+    def __init__(self, env, files, reset_noise=True, sampling_mode="return", allow_synthetic=False, reset_cfg=None, waist_soft_limit_factor=.8):
         super().__init__(env)
         self.layout = RobotLayout.from_model(env.sim.mj_model)
         self.fk = ModelKinematics(env.sim.mj_model, device=self.device)
@@ -123,7 +140,7 @@ class A3MotionCommand(Command, namespace="a3_supermimic"):
         self.reset_joint_limits = self.asset.data.soft_joint_pos_limits[0].clone()
         for jid, name in zip(self.policy_joint_ids, POLICY_JOINTS):
             hard = torch.tensor(env.sim.mj_model.joint("robot/"+name).range, device=self.device, dtype=torch.float32)
-            factor = .8 if name.startswith("waist_") else .9
+            factor = waist_soft_limit_factor if name.startswith("waist_") else .9
             self.reset_joint_limits[jid] = hard.mean() + (hard-hard.mean())*factor
         self.default_joint_pos = self.asset.data.default_joint_pos[0, self.policy_joint_ids].clone()
         self.library = MotionLibrary(files, env.sim.mj_model, self.layout, self.fk,
@@ -250,9 +267,11 @@ class Simulator:
             bodies = self.heads.robot_bodies(self.state())
             ref = self.library.bodies(self.command.frame)
             ai = self.heads.observation_anchor_index
-            extra = anchor_relative_orientation(bodies["quat"][:, ai], ref.quat_w[:, ai])
+            extra = (anchor_relative_pose(bodies["pos"][:, ai], bodies["quat"][:, ai], ref.pos_w[:, ai], ref.quat_w[:, ai])
+                     if self.cfg.env.anchor_position else anchor_relative_orientation(bodies["quat"][:, ai], ref.quat_w[:, ai]))
             if self.cfg.env.obs_noise:
-                extra += (torch.rand_like(extra)*2-1)*ANCHOR_NOISE_HALF.to(self.device)
+                noise = ANCHOR_POSE_NOISE_HALF if self.cfg.env.anchor_position else ANCHOR_NOISE_HALF
+                extra += (torch.rand_like(extra)*2-1)*noise.to(self.device)
             goal = torch.cat((goal, extra), -1)
         return {"policy": flatten_history_term_major(self.history), "goal": goal}
 

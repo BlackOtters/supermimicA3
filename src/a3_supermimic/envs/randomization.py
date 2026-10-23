@@ -37,12 +37,14 @@ class upstream_rigid_reset(Randomization, namespace="a3_supermimic"):
             model.geom_contype[g] or model.geom_conaffinity[g])]
         if not ground or any(model.body_weldid[model.geom_bodyid[g]] != 0 for g in ground):
             raise ValueError("Upstream foot friction requires static world-welded terrain")
-        if any(model.geom_priority[g] != model.geom_priority[r] for g in ground for r in geoms):
-            raise ValueError("Upstream foot friction requires equal robot/ground priorities")
+        if any(model.geom_priority[g] > model.geom_priority[r] for g in ground for r in geoms):
+            raise ValueError("Ground priority must not override foot friction")
         # A3 uses equal contact priorities: MuJoCo's max rule must not clamp low foot samples.
-        ground_ids = torch.tensor(ground, device=self.device, dtype=torch.long)
-        env.sim.model.geom_friction[:, ground_ids, 0] = env.sim.model.geom_friction[:, ground_ids, 0].clamp_max(friction_range[0])
-        model.geom_friction[ground, 0] = model.geom_friction[ground, 0].clip(max=friction_range[0])
+        equal_priority = [g for g in ground if any(model.geom_priority[g] == model.geom_priority[r] for r in geoms)]
+        if equal_priority:
+            ground_ids = torch.tensor(equal_priority, device=self.device, dtype=torch.long)
+            env.sim.model.geom_friction[:, ground_ids, 0] = env.sim.model.geom_friction[:, ground_ids, 0].clamp_max(friction_range[0])
+            model.geom_friction[equal_priority, 0] = model.geom_friction[equal_priority, 0].clip(max=friction_range[0])
         env._supermimic_upstream_reset = self
 
     def reset(self, env_ids):

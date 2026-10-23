@@ -34,6 +34,11 @@ def anchor_relative_orientation(robot_anchor_quat: torch.Tensor, ref_anchor_quat
 ANCHOR_OBS_DIM = 6
 
 
+def anchor_relative_pose(robot_pos, robot_quat, reference_pos, reference_quat):
+    position = quat_apply_inverse(robot_quat, reference_pos - robot_pos)
+    return torch.cat((position, anchor_relative_orientation(robot_quat, reference_quat)), -1)
+
+
 def flatten_history_term_major(hist: torch.Tensor) -> torch.Tensor:
     """(H, N, 93) oldest→newest  ->  (N, 930) in mjlab's term-major layout [A_t0..A_tH-1, B_t0..]."""
     H, N, _ = hist.shape
@@ -152,8 +157,8 @@ class AnalyticHeads:
         """Paper Appendix A: height and gravity-z tilt errors normalized by their limits."""
         cfg = self.termination_cfg
         height = (ref.root_pos_w[..., 2] - root_pos[..., 2]) / cfg.height_threshold
-        tilt = (projected_gravity(root_quat)[..., 2] -
-                projected_gravity(ref.root_quat_w)[..., 2]).abs() / cfg.tilt_threshold
+        tilt = (projected_gravity(ref.root_quat_w)[..., 2] -
+                projected_gravity(root_quat)[..., 2]) / cfg.tilt_threshold
         return torch.stack([height, tilt], dim=-1)
 
     def terminated(self, s: torch.Tensor, ref: ReferenceFrame) -> torch.Tensor:

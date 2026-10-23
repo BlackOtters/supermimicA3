@@ -1,12 +1,31 @@
 # SuperMimic A3
 
-独立的 A3 Ultra SuperMimic 训练仓库，当前为 **v9 四卡刚性版本**，基于 v8 / e5 更新。
+独立的 A3 Ultra SuperMimic 训练仓库，当前为 **v10 四卡刚性版本**，增加 retargeted 对齐配方。
 包含训练、世界模型、A3 仿真适配、机器人 MJCF/mesh、SwanLab、评测与策略导出。
 不需要原来的 MimicLite 工作区，不包含训练数据、checkpoint 或凭据。
 
 This is a standalone snapshot of the A3 Ultra adaptation of
 [SuperMimic-Reproduced](https://github.com/CuboiLeo/SuperMimic-Reproduced).
 It reproduces the training recipe; convergence and hardware transfer are not claimed.
+
+## v10：LAFAN retargeted 对齐训练
+
+参考 [supermimic-retargeted ff69a0e](https://github.com/tianshuwu/supermimic-retargeted/tree/ff69a0e5305126eb5b80b323bcd815805bc3df4e)，保留本仓库 Ultra29 本体：
+关闭自碰撞、保留地面接触；足部摩擦接触、非足部仅法向接触；恢复 torso 9D 相对位置/姿态反馈和学习式终止头。
+replay=512、Newton=10、TF32，初始 replay 填充40步后联合训练，没有额外500轮 WM-only。
+
+```bash
+export DATA_DIR=/path/to/lafan_filtered_v2
+export SWANLAB_API_KEY_FILE=/path/to/private/swanlab_api_key
+bash scripts/train_retargeted_lafan.sh --check-config
+bash scripts/train_retargeted_lafan.sh
+```
+
+四卡各2048环境、actor/WM batch各1024，全局8192环境、batch4096，有效LR约2.828e-4；与对方历史两卡实验的全局规模一致。
+可用 `ENVS_PER_GPU` / `ACTOR_BATCH_PER_GPU` / `WM_BATCH_PER_GPU` 覆盖，但会改变对照条件。
+入口只启动新训练，拒绝 `RESUME`。旧v8/v9 checkpoint请继续使用缓存的匹配源码，不能直接加载到此版本。
+对方未公开的WM warmstart没有复用；本版也没有替换现有32条筛选LAFAN或Ultra硬件模型。
+9D位置反馈需要真实机器人对应的位置估计。详见 [完整配方与差异](docs/retargeted_training.txt)。
 
 ## 安装
 
@@ -27,7 +46,7 @@ mjlab 1.3.0、MuJoCo 3.11.0、mujoco-warp 3.8.1、Warp 1.12.0。
 需要在本地已有环境中使用时：`python -m pip install -e .`。
 本包自带 `active_adaptation` 和 `mimic_lite` 的所需代码，建议使用独立环境以避免同名包混用。
 
-## 四卡训练
+## 通用四卡入口（原 v9 参数）
 
 数据由使用者准备，设置 `DATA_DIR` 即可；支持本文后面的 NPZ 或 packed-library 格式。
 默认启用 SwanLab。使用自己的凭据文件，并限制文件读取权限：
@@ -80,7 +99,7 @@ A3_SM_SWANLAB_MODE=disabled NPROC_PER_NODE=1 ENVS_PER_GPU=128 \
 默认设置 `NCCL_P2P_DISABLE=1`、`NCCL_CUMEM_HOST_ENABLE=0`，与该 DLC 配方一致；可按机器覆盖。
 `--check-distributed` 仅测试多卡通信，`--print-command` 只打印最终训练命令。
 
-## 模型与算法
+## 通用入口默认模型与算法
 
 - 原生刚性 29 轴 A3 Ultra，头部/手指固定中立位，无弹性踝转子、动作延迟。
   保留标称质量、惯量、碰撞几何、PD、力矩限制和动作缩放。

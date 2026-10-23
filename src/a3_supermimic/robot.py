@@ -18,13 +18,13 @@ TRACKED_BODIES = (
 )
 BASE_TASK = "depsic-a3-ultra-v2-amp-s2r-four-ankle-mixed"
 TRACKING_ANCHOR = "torso_Link"  # Upstream e5 reward anchor; termination still uses the pelvis root.
-CONTRACT_VERSION = 9
+CONTRACT_VERSION = 10
 UPSTREAM_COMMIT = "66f44a4f8f2c8dd31d00434c80e979eea2572622"
 
 
 def check_contract_version(checkpoint):
     if checkpoint.get("contract", {}).get("version") != CONTRACT_VERSION:
-        raise ValueError("Checkpoint does not match v9 orientation-only goals, analytic termination and WM-only warmup; use its cached source or start a new run")
+        raise ValueError("Checkpoint does not match v10 configurable feedback, collisions and termination; use its cached source or start a new run")
 
 
 @dataclass

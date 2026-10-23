@@ -48,7 +48,9 @@ class WorldModelTrainer:
             g["lr"] = lr
 
     def loss_on(self, w: WindowBatch):
-        return self.wm.window_loss(w.states, w.a_exec, w.xi)
+        refs = ([reference_at(self.lib, frame) for frame in w.frame]
+                if self.wm.term_head is not None else None)
+        return self.wm.window_loss(w.states, w.a_exec, w.xi, w.done, refs)
 
     def _fail(self, reason, w, loss, batch_index, *, grad_norm=None, local_grad_finite=None):
         path = None

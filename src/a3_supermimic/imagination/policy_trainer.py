@@ -36,6 +36,7 @@ class PolicyTrainerCfg:
     obs_noise: bool = True
     compile: str | None = "default"
     anchor_obs: bool = False  # Append 6D reference-relative anchor orientation to the goal.
+    anchor_position: bool = False
 
 
 class PolicyTrainer:
@@ -67,7 +68,7 @@ class PolicyTrainer:
         # ---- actor: BPTT through the frozen world model ------------------------------------
         self.wm.requires_grad_(False)
         self.critic.requires_grad_(False)
-        ro = imagine(self.wm, self.policy, self.lib, start, cfg.horizon, cfg.future_frames, obs_noise=cfg.obs_noise, step_fn=self.step_fn, anchor_obs=cfg.anchor_obs)
+        ro = imagine(self.wm, self.policy, self.lib, start, cfg.horizon, cfg.future_frames, obs_noise=cfg.obs_noise, step_fn=self.step_fn, anchor_obs=cfg.anchor_obs, anchor_position=cfg.anchor_position)
         feat, goals, e_root = self._critic_inputs(ro, start.xi)
         if cfg.use_critic:
             v_H = self.critic(feat[-1], goals[-1], xi_norm, e_root[-1])

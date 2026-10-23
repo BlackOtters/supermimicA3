@@ -23,12 +23,12 @@ data_dir="${DATA_DIR:-$repo/data/library}"
 recipe=(
   --run-name "$RUN_NAME" --log-root "$log_root" --seed 42
   --data.npz-dir "$data_dir" --env.num-envs "${ENVS_PER_GPU:-4096}"
-  --env.replay-capacity 1000 --wm-trainer.batch-size "${WM_BATCH_PER_GPU:-2048}"
+  --env.replay-capacity "${REPLAY_CAPACITY:-1000}" --wm-trainer.batch-size "${WM_BATCH_PER_GPU:-2048}"
   --policy-trainer.batch-size "${ACTOR_BATCH_PER_GPU:-2048}"
-  --wm-trainer.lr 0.0002 --policy-trainer.lr 0.0002 --policy-trainer.critic-lr 0.0002
+  --wm-trainer.lr "${BASE_LR:-0.0002}" --policy-trainer.lr "${BASE_LR:-0.0002}" --policy-trainer.critic-lr "${BASE_LR:-0.0002}"
   --lr-world-size 1 --schedule.total-iterations "${TOTAL_ITERATIONS:-320000}"
   --schedule.log-interval 50 --schedule.checkpoint-interval 500
-  --schedule.wm-only-updates 500
+  --schedule.wm-only-updates "${WM_ONLY_UPDATES:-500}"
 )
 if [[ -n "${RESUME:-}" ]]; then
   recipe=(--resume "$RESUME" --run-name "$RUN_NAME" --log-root "$log_root"

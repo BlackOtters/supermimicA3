@@ -37,6 +37,10 @@ class EnvCfg:
     replay_capacity: int = 1000
     future_frames: int = 10
     anchor_obs: bool = True  # 6D reference-relative orientation, no position feedback
+    anchor_position: bool = False  # Add 3D relative position for the retargeted baseline.
+    collision_profile: str = "a3"  # a3 | retargeted (ground contacts, no self-collision)
+    waist_soft_limit_factor: float = 0.8
+    solver_iterations: int = 50
     observation_anchor: str = "torso_Link"  # e5 uses the torso for both goal feedback and rewards
     terrain: str = "plane"  # upstream training terrain; inherit is an explicit A3 rough-terrain opt-in
     evaluation_physics: str = "rigid"  # legacy name: topology for training and evaluation; DR is independent
@@ -81,3 +85,4 @@ class TrainConfig:
     swanlab: SwanLabCfg = field(default_factory=SwanLabCfg)
     resume: Path | None = None
     lr_world_size: int = 1  # records applied sqrt(world_size) scaling in saved configurations
+    tf32: bool = False

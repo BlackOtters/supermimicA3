@@ -26,8 +26,9 @@ def main():
         check_contract_version(saved)
         defaults = restore_config(saved["config"])
     cfg = tyro.cli(TrainConfig, default=defaults)
-    cfg.policy.goal_dim = 68 * cfg.env.future_frames + (ANCHOR_OBS_DIM if cfg.env.anchor_obs else 0)
+    cfg.policy.goal_dim = 68 * cfg.env.future_frames + ((9 if cfg.env.anchor_position else ANCHOR_OBS_DIM) if cfg.env.anchor_obs else 0)
     cfg.policy_trainer.anchor_obs = cfg.env.anchor_obs
+    cfg.policy_trainer.anchor_position = cfg.env.anchor_position
     layout = RobotLayout.from_model(load_robot_model(compact=cfg.env.representation == "compact_rigid"))
     task = task_config(cfg, [Path(cfg.data.npz_dir) / "library.json"])
     world = int(os.environ.get("NPROC_PER_NODE", "4"))

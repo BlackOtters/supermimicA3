@@ -27,6 +27,13 @@ from a3_supermimic.world_model.heads import ANCHOR_OBS_DIM
 class Trainer:
     def __init__(self, cfg: TrainConfig):
         self.cfg = cfg
+        if cfg.tf32:
+            # Torch 2.10 Inductor reads legacy TF32 flags; mixing the new precision
+            # API used by newer mjlab with that compiler raises during graph lowering.
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cudnn.deterministic = False
         self.rank, local_rank, self.world = init_distributed()
         if self.world > 1:
             cfg.device = f"cuda:{local_rank}"
@@ -36,10 +43,11 @@ class Trainer:
         if torch.device(cfg.device).type == "cuda":
             torch.cuda.set_device(cfg.device)
         torch.manual_seed(cfg.seed+1000*self.rank)
-        cfg.policy.goal_dim = 68*cfg.env.future_frames + (ANCHOR_OBS_DIM if cfg.env.anchor_obs else 0)
+        cfg.policy.goal_dim = 68*cfg.env.future_frames + ((9 if cfg.env.anchor_position else ANCHOR_OBS_DIM) if cfg.env.anchor_obs else 0)
         cfg.policy_trainer.future_frames = cfg.env.future_frames
         cfg.policy_trainer.history = cfg.policy.history
         cfg.policy_trainer.anchor_obs = cfg.env.anchor_obs
+        cfg.policy_trainer.anchor_position = cfg.env.anchor_position
         cfg.policy_trainer.obs_noise = cfg.env.obs_noise
         if cfg.env.replay_capacity <= cfg.wm_trainer.window or cfg.policy_trainer.horizon < 1:
             raise ValueError("Replay capacity must exceed the WM window; horizon must be positive")
@@ -80,12 +88,16 @@ class Trainer:
                          "joint_order": POLICY_JOINTS, "data_sha256": self.lib.fingerprint,
                          "task": task, "history": cfg.policy.history,
                          "goal_dim": cfg.policy.goal_dim, "anchor_obs": cfg.env.anchor_obs,
-                         "anchor_observation": "relative_orientation_rot6d_row_major" if cfg.env.anchor_obs else "none",
+                         "anchor_observation": (("relative_position_and_orientation_9d" if cfg.env.anchor_position else
+                                                 "relative_orientation_rot6d_row_major") if cfg.env.anchor_obs else "none"),
                          "observation_anchor": cfg.env.observation_anchor,
                          "representation": cfg.env.representation, "policy_config": asdict(cfg.policy),
                          "state_spec": asdict(cfg.world_model.state_spec),
                          "termination": asdict(cfg.env.termination), "reset": asdict(cfg.env.reset),
-                         "imagination_termination": "analytic_sigmoid_or",
+                         "imagination_termination": cfg.world_model.termination_mode,
+                         "world_model_config": asdict(cfg.world_model),
+                         "collision_profile": cfg.env.collision_profile,
+                         "tf32": cfg.tf32,
                          "wm_only_updates": cfg.schedule.wm_only_updates,
                          "wm_batches_per_update": cfg.wm_trainer.batches_per_update,
                          "observation_noise_half": OBS_NOISE_HALF.tolist(),
