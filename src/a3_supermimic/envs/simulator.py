@@ -20,6 +20,7 @@ from a3_supermimic.world_model.wm_trainer import reference_at
 from a3_supermimic.envs.mdp.motion_library import MotionLibrary
 from a3_supermimic.envs.context import SimContext, CompactSimContext, TerrainFeatures
 from a3_supermimic.imagination.rollout import OBS_NOISE_HALF, ANCHOR_NOISE_HALF
+from a3_supermimic.data.replay_buffer import valid_action
 
 
 def task_config(cfg, files):
@@ -279,6 +280,11 @@ class Simulator:
         frame, episode = self.command.frame.clone(), self.env.episode_id.clone()
         previous_clean = self.previous_clean.clone()
         executed = action + torch.randn_like(action)*self.cfg.env.action_noise_std
+        invalid_action = ~valid_action(action) | ~valid_action(executed) | ~valid_action(previous_clean)
+        # Reset a runaway episode before its command reaches the simulator or history.
+        # Do not clamp ordinary policy outputs or train the WM on a substituted command.
+        action = torch.where(invalid_action[:, None], torch.zeros_like(action), action)
+        executed = torch.where(invalid_action[:, None], torch.zeros_like(executed), executed)
         full_action = executed if self.layout.compact else torch.cat((executed, self.library.head_targets(frame)), -1)
         result = self.env._step(TensorDict({"action": executed}, batch_size=[self.num_envs], device=self.device))
         self.previous = full_action.clone(); self.previous_clean = action.clone(); self.fresh.zero_()
@@ -286,7 +292,9 @@ class Simulator:
         ref = reference_at(self.library, frame)
         terms = self.heads.reward(next_state, action, previous_clean, ref)
         reward = terms["total"]
-        invalid = result["terminated"].squeeze(-1) | ~torch.isfinite(next_state).all(-1) | ~torch.isfinite(reward)
+        invalid = (invalid_action | result["terminated"].squeeze(-1)
+                   | ~torch.isfinite(state).all(-1) | ~torch.isfinite(next_state).all(-1)
+                   | ~torch.isfinite(reward))
         terminated = self.heads.terminated(next_state, ref) | invalid
         clip_end = frame >= self.library.last_frame_of(frame)
         timeout = (self.env.episode_length_buf >= self.env.max_episode_length.squeeze(-1)) | clip_end
@@ -295,13 +303,14 @@ class Simulator:
         if self.buffer is not None:
             self.buffer.append(state, full_action, next_state, frame, episode, terminated,
                                previous_clean_action=previous_clean,
-                               valid=~invalid, start_valid=torch.isfinite(state).all(-1))
+                               valid=~invalid, start_valid=~invalid)
         self.command.record_reward(reward)
         ids = done.nonzero().flatten()
         self.command.finalize(ids, terminated, clip_end)
         self.command.frame = torch.minimum(frame+1, self.library.last_frame_of(frame))
         self.history = torch.cat((self.history[1:], self._observation(next_state)[None]), 0)
-        extra = {"reward_terms": terms, "invalid": invalid, "terminal_state": next_state}
+        extra = {"reward_terms": terms, "invalid": invalid, "invalid_action": invalid_action,
+                 "terminal_state": next_state}
         if auto_reset and len(ids):
             self.reset(ids)
         return self.observation(), reward, terminated, timeout, extra

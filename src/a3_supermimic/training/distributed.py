@@ -34,7 +34,8 @@ def init_distributed() -> tuple[int, int, int]:
     # NCCL cannot share one GPU between ranks; fall back to gloo for single-GPU smoke tests.
     one_gpu_per_rank = pinned or torch.cuda.device_count() >= world
     backend = os.environ.get("SM_DIST_BACKEND") or ("nccl" if one_gpu_per_rank else "gloo")
-    dist.init_process_group(backend, rank=rank, world_size=world)
+    kwargs = {"device_id": torch.device("cuda", local_rank)} if backend == "nccl" else {}
+    dist.init_process_group(backend, rank=rank, world_size=world, **kwargs)
     return rank, local_rank, world
 
 

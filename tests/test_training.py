@@ -11,7 +11,7 @@ from a3_supermimic.data.replay_buffer import ReplayBuffer
 from a3_supermimic.envs.mdp.motion_library import MotionLibrary
 
 
-def _distributed_bad_loss_worker(rank, root):
+def _distributed_bad_loss_worker(rank, root, failure="loss"):
     from pathlib import Path
     from types import SimpleNamespace
     from a3_supermimic.data.replay_buffer import WindowBatch
@@ -27,9 +27,13 @@ def _distributed_bad_loss_worker(rank, root):
                                     failure_dir=root)
         window = WindowBatch(torch.ones(1), torch.zeros(1), torch.zeros(1),
                              torch.zeros(1), torch.zeros(1, dtype=torch.long))
-        trainer.loss_on = lambda w: (wm(w.states[:, None]).sum() + (float("inf") if rank else 0.), {})
-        with pytest.raises(FloatingPointError, match="Nonfinite world-model loss"):
+        trainer.loss_on = lambda w: (wm(w.states[:, None]).sum() + (float("inf") if rank and failure == "loss" else 0.), {})
+        if rank and failure == "gradient":
+            wm.weight.register_hook(lambda grad: grad * float("nan"))
+        with pytest.raises(FloatingPointError, match=f"Nonfinite world-model {failure}"):
             trainer.update(SimpleNamespace(sample_windows=lambda *args: window))
+        if failure == "gradient":
+            assert bool(wm.weight.grad.isfinite().all()) == (rank == 0)
         assert not trainer.opt.state
     finally:
         dist.destroy_process_group()
@@ -41,6 +45,15 @@ def test_bad_loss_on_one_rank_stops_all_ranks(tmp_path):
         snapshot = torch.load(tmp_path / f"wm_rank{rank}.pt", weights_only=True)
         assert snapshot["reason"] == "loss"
         assert bool(snapshot["loss"].isfinite()) == (rank == 0)
+
+
+def test_bad_gradient_is_detected_before_it_contaminates_other_ranks(tmp_path):
+    torch.multiprocessing.spawn(_distributed_bad_loss_worker,
+                               args=(str(tmp_path), "gradient"), nprocs=2, join=True)
+    for rank in (0, 1):
+        snapshot = torch.load(tmp_path / f"wm_rank{rank}.pt", weights_only=True)
+        assert snapshot["reason"] == "gradient"
+        assert snapshot["local_grad_finite"] == (rank == 0)
 
 
 def test_finite_loss_with_overflowed_norm_can_update_and_reports_fallback():

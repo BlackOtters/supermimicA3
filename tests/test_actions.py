@@ -55,3 +55,15 @@ def test_clean_actor_history_and_reward_keep_executed_dynamics_input(robot, moti
     torch.testing.assert_close(sim.buffer.previous_clean_actions[1], action)
     torch.testing.assert_close(sim.buffer.actions[0, :, :29], received[0])
     torch.testing.assert_close(sim.buffer.actions[1, :, :29], received[1])
+    resets = []
+    sim.reset = lambda ids: resets.append(ids.clone())
+    for t, bad_value in enumerate((1.e16, float('nan'), float('inf')), start=2):
+        bad_action = action.clone(); bad_action[0, 0] = bad_value
+        _, reward, terminal, _, extra = sim.step(bad_action)
+        assert torch.isfinite(received[-1]).all()
+        assert (received[-1][0] == 0).all()
+        torch.testing.assert_close(received[-1][1], action[1] - .1)
+        assert terminal[0] and extra['invalid_action'][0] and reward[0] == 0
+        assert resets[-1].tolist() == [0]
+        assert not sim.buffer.valid[t, 0] and not sim.buffer.start_valid[t, 0]
+        assert sim.buffer.valid[t, 1]

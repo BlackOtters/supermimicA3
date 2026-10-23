@@ -83,6 +83,12 @@ class WorldModelTrainer:
             # Keep the local result before a bad rank contaminates the averaged gradients.
             local_finite = torch.stack([p.grad.isfinite().all() for p in self.wm.parameters()
                                         if p.grad is not None]).all().detach()
+            globally_finite = local_finite.to(torch.int32)
+            if world_size() > 1:
+                dist.all_reduce(globally_finite, op=dist.ReduceOp.MIN)
+            if not bool(globally_finite):
+                self._fail("gradient", w, loss, batch_index,
+                           local_grad_finite=bool(local_finite))
             allreduce_grads(self.wm)
             gn = clip_grad_norm_stable(self.wm.parameters(), self.cfg.grad_clip)
             if not torch.isfinite(gn):

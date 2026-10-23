@@ -2,6 +2,14 @@
 from dataclasses import dataclass
 import torch
 
+# Emergency numerical cutoff, not an action clamp. Ordinary commands are unchanged.
+# A failed v8 episode fed 1e16 actions back through the actor's observation history.
+MAX_ABS_ACTION = 100.0
+
+
+def valid_action(action):
+    return torch.isfinite(action).all(-1) & (action.abs() <= MAX_ABS_ACTION).all(-1)
+
 
 @dataclass
 class WindowBatch:
@@ -83,8 +91,10 @@ class ReplayBuffer:
         self.actions[i].copy_(action); self.frame[i].copy_(frame)
         self.episode[i].copy_(episode); self.context_ids[i].copy_(self.current_context)
         self.done[i].copy_(done.bool())
-        self.valid[i] = True if valid is None else valid
-        self.start_valid[i] = True if start_valid is None else start_valid
+        finite_state = torch.isfinite(state).all(-1) & torch.isfinite(next_state).all(-1)
+        usable = finite_state & valid_action(action) & valid_action(previous_clean_action)
+        self.valid[i] = usable if valid is None else usable & valid
+        self.start_valid[i] = usable if start_valid is None else usable & start_valid
         self.count += 1
         if self.count % self.capacity == 0:
             self._compact_contexts()

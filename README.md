@@ -138,6 +138,22 @@ a3-sm-data validate /path/to/library
 `tb/`、`swanlab.json`、`ckpt_latest.pt` 和编号 checkpoint。
 SwanLab 回报为多卡聚合，WM/actor/critic 和编码器诊断标量来自 rank 0。
 
+若 SwanLab 空白但 `metrics.jsonl` 持续增长，可从本地记录补传到单独的恢复实验，
+不改变原训练或原实验状态。`--follow` 持续读取新记录，停止更新 30 分钟后退出；
+省略该选项则只补传已有记录。恢复实验信息保存在 `tracking_recovery.json`。
+
+```bash
+python -m a3_supermimic.scripts.recover_tracking logs/<RUN_NAME> --follow
+```
+
+上传完成不等于图表已可查询，仍需在云端核对指标。服务端不可用时可以直接查看
+已有 TensorBoard：`tensorboard --logdir logs/<RUN_NAME>/tb --host 127.0.0.1 --port 6006`。
+
+数值防护：非有限动作或绝对值超过 100 的归一化动作视为数值失控，在送入仿真前
+替换为零、结束该环境回合并排除对应回放。普通动作不裁剪，编码器、奖励与正常
+终止阈值不变。`train/invalid_action_resets` 记录每个日志区间的四卡总触发次数。
+世界模型在梯度跨卡归并前检查每张卡，出现其他未预期的非有限值仍保存故障样本并报错。
+
 ```bash
 tensorboard --logdir logs
 

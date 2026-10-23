@@ -72,6 +72,7 @@ class SwanLabLogger:
         if self.run is not None:
             self.run.log(dict(metrics), step=step)
 
-    def finish(self, state="success"):
+    def finish(self, state="success", error=None):
         if self.run is not None:
-            self.run.finish(state=state)
+            kwargs = {"error": error} if error is not None else {}
+            self.run.finish(state=state, **kwargs)

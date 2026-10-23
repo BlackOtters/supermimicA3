@@ -166,10 +166,12 @@ class Trainer:
         collected = 0
         ep_return = torch.zeros(cfg.env.num_envs, device=cfg.device)
         ep_length = torch.zeros_like(ep_return)
+        invalid_actions = torch.zeros((), device=cfg.device)
         recent_returns = []
         metrics = {}
         tracker = None
         tracking_state = "crashed"
+        tracking_failure = None
         try:
             # All ranks fail together if cloud initialization fails on rank zero.
             tracking_error = None
@@ -184,6 +186,7 @@ class Trainer:
                 with torch.no_grad():
                     action = self.policy(obs["policy"], obs["goal"])
                     obs, reward, term, timeout, extra = self.sim.step(action)
+                invalid_actions += extra["invalid_action"].sum()
                 ep_return += reward; ep_length += 1
                 done = term | timeout
                 if done.any():
@@ -202,6 +205,7 @@ class Trainer:
                                     "train/finished_episodes": count*self.world, "time/hours": elapsed/3600,
                                     "train/updates": self.num_updates,
                                     "train/policy_updates": self.num_policy_updates,
+                                    "train/invalid_action_resets": allreduce_mean(float(invalid_actions))*self.world,
                                     "replay/transitions": self.buffer.size})
                     tracking_error = None
                     if self.rank == 0:
@@ -223,6 +227,7 @@ class Trainer:
                     if allreduce_mean(float(tracking_error is not None)):
                         raise RuntimeError(f"SwanLab metric logging failed ({tracking_error or 'see rank 0'}); local JSONL is preserved")
                     recent_returns.clear()
+                    invalid_actions.zero_()
                     if sch.max_hours is not None and allreduce_mean(float(elapsed/3600 > sch.max_hours)) > 0:
                         break
                 if self.iteration % sch.checkpoint_interval == 0:
@@ -232,10 +237,13 @@ class Trainer:
         except KeyboardInterrupt:
             tracking_state = "aborted"
             raise
+        except Exception as error:
+            tracking_failure = tracking_error_message(error)
+            raise
         finally:
             try:
                 if tracker is not None:
-                    tracker.finish(tracking_state)
+                    tracker.finish(tracking_state, error=tracking_failure)
             finally:
                 if self.writer is not None:
                     self.writer.close()
