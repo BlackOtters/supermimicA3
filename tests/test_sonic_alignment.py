@@ -117,7 +117,7 @@ def test_imagination_uses_current_reference_through_clip_end(robot, motion):
     heads = AnalyticHeads(fk, TRACKED_BODIES, TRACKING_ANCHOR, "pelvis_link",
                           torch.tensor([[-3., 3.]]*29), torch.zeros(29), layout=layout)
     lib = MotionLibrary([motion], model, layout, fk, fk.body_indices(TRACKED_BODIES), torch.zeros(29), allow_synthetic=True)
-    wm = WorldModel(WorldModelCfg(hidden=(16,), term_hidden=(8,)), heads, "cpu", torch.zeros(34), torch.ones(34))
+    wm = WorldModel(WorldModelCfg(hidden=(16,)), heads, "cpu", torch.zeros(34), torch.ones(34))
     actor = Policy(PolicyCfg(encoder_hidden=(16,), decoder_hidden=(16,), history=2, goal_dim=136))
     frame = torch.tensor([0, 61])
     q, v = lib.generalized(frame)
@@ -137,7 +137,7 @@ def test_imagination_uses_current_reference_through_clip_end(robot, motion):
     torch.testing.assert_close(OBS_NOISE_HALF[29:58], torch.full((29,), .5))
 
 
-@pytest.mark.parametrize("version", [3, 4, 5, 6, 7])
+@pytest.mark.parametrize("version", [3, 4, 5, 6, 7, 8])
 def test_old_reward_termination_checkpoint_rejected(version):
     with pytest.raises(ValueError, match="start a new run"):
         check_contract_version({"contract": {"version": version}})

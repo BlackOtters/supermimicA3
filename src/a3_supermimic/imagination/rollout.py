@@ -10,13 +10,13 @@ from a3_supermimic.data.replay_buffer import StartBatch
 from a3_supermimic.envs.mdp.motion_library import MotionLibrary
 from a3_supermimic.imagination.compiled import REWARD_TERM_NAMES, ImagStep
 from a3_supermimic.policy.nets import Policy
-from a3_supermimic.world_model.heads import ReferenceFrame, anchor_relative_obs, flatten_history_term_major
+from a3_supermimic.world_model.heads import ReferenceFrame, anchor_relative_orientation, flatten_history_term_major
 from a3_supermimic.world_model.wm_trainer import reference_at
 from a3_supermimic.world_model.world_model import WorldModel
 
 # SONIC 035 / paper Table A.1 sensor noise, shared with the simulator.
 OBS_NOISE_HALF = torch.tensor([0.01] * 29 + [0.5] * 29 + [0.2] * 3 + [0.05] * 3 + [0.0] * 29)
-ANCHOR_NOISE_HALF = torch.tensor([0.25] * 3 + [0.05] * 6)
+ANCHOR_NOISE_HALF = torch.tensor([0.05] * 6)
 
 
 @dataclass
@@ -26,7 +26,7 @@ class ImagRollout:
     rewards: torch.Tensor  # (H, n)      r_{t+1}
     dhat: torch.Tensor  # (H+1, n)    predicted termination prob of s_t (d_0 = 0)
     survival: torch.Tensor  # (H+1, n)    c_t
-    goals: torch.Tensor  # (H+1, n, 680)
+    goals: torch.Tensor  # (H+1, n, 68*K + optional 6D orientation)
     e_root: torch.Tensor  # (H+1, n, 4)
     frames: torch.Tensor  # (H+1, n)
     reward_terms: dict  # mean of each reward term over the rollout (diagnostics)
@@ -56,11 +56,11 @@ def imagine(
             return o + (torch.rand_like(o) * 2 - 1) * noise_half
         return o
 
-    def make_goal(frame_t, ref_t, anchor_pose):
+    def make_goal(frame_t, ref_t, anchor_quat):
         g = lib.goal_window(frame_t, future_frames)
         if not anchor_obs:
             return g
-        rel = anchor_relative_obs(anchor_pose[..., 0:3], anchor_pose[..., 3:7], ref_t.body_pos_w[..., ai, :], ref_t.body_quat_w[..., ai, :])
+        rel = anchor_relative_orientation(anchor_quat, ref_t.body_quat_w[..., ai, :])
         if obs_noise:
             rel = rel + (torch.rand_like(rel) * 2 - 1) * anchor_noise_half
         return torch.cat([g, rel], dim=-1)
@@ -89,10 +89,10 @@ def imagine(
     ref = ref_at(0)
     if anchor_obs:
         b0 = wm.heads.robot_bodies(s)
-        anchor_pose = torch.cat([b0["pos"][..., ai, :], b0["quat"][..., ai, :]], dim=-1)
+        anchor_quat = b0["quat"][..., ai, :]
     else:
-        anchor_pose = None
-    goals = [make_goal(frame, ref, anchor_pose)]
+        anchor_quat = None
+    goals = [make_goal(frame, ref, anchor_quat)]
     e_roots = [wm.heads.root_error_features(s, ref)]
     term_sum = torch.zeros(len(REWARD_TERM_NAMES), device=device)
 
@@ -100,8 +100,7 @@ def imagine(
         obs_flat = flatten_history_term_major(torch.stack(hist, 0))
         a = policy(obs_flat, goals[-1])
         executed = a if wm.heads.layout.compact else torch.cat((a, lib.head_targets(frame)), -1)
-        s_next, r, term_vec, logits, obs_clean, anchor_pose = step_fn(s, executed, a_prev, start.xi, ref)
-        d = torch.sigmoid(logits)
+        s_next, r, term_vec, d, obs_clean, anchor_quat = step_fn(s, executed, a_prev, start.xi, ref)
         c = c * (1.0 - d)
         term_sum += term_vec.detach().mean(-1)
 
@@ -115,7 +114,7 @@ def imagine(
         rewards.append(r)
         dhats.append(d)
         survivals.append(c)
-        goals.append(make_goal(frame, ref, anchor_pose))
+        goals.append(make_goal(frame, ref, anchor_quat))
         e_roots.append(wm.heads.root_error_features(s, ref))
         frames.append(frame)
 

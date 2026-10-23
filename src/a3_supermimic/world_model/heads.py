@@ -10,8 +10,10 @@ imagined rollouts.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import torch
+import torch.nn.functional as F
 
 from a3_supermimic.envs.mdp.rewards import TrackingRewardCfg, tracking_reward_terms
 from a3_supermimic.kinematics.model import ModelKinematics
@@ -22,19 +24,14 @@ OBS_DIM = 93
 OBS_TERMS = (("joint_pos", 29), ("joint_vel", 29), ("base_ang_vel", 3), ("projected_gravity", 3), ("actions", 29))
 
 
-def anchor_relative_obs(robot_anchor_pos: torch.Tensor, robot_anchor_quat: torch.Tensor, ref_anchor_pos: torch.Tensor, ref_anchor_quat: torch.Tensor) -> torch.Tensor:
-    """Reference anchor pose expressed in the robot anchor frame: [pos (3), rot6d (6)] (= mjlab's
-    motion_anchor_pos_b / motion_anchor_ori_b, plan D5 alternative)."""
-    from a3_supermimic.kinematics.rotations import matrix_from_quat, quat_inv, quat_mul
+def anchor_relative_orientation(robot_anchor_quat: torch.Tensor, ref_anchor_quat: torch.Tensor) -> torch.Tensor:
+    """Reference orientation in the robot anchor frame; first two rotation columns, row-major."""
+    from a3_supermimic.kinematics.rotations import rot6d_from_quat
 
-    q10 = quat_inv(robot_anchor_quat)
-    pos = quat_apply_inverse(robot_anchor_quat, ref_anchor_pos - robot_anchor_pos)
-    q12 = quat_mul(q10, ref_anchor_quat)
-    mat = matrix_from_quat(q12)
-    return torch.cat([pos, mat[..., :2].reshape(*q12.shape[:-1], 6)], dim=-1)
+    return rot6d_from_quat(quat_mul(quat_inv(robot_anchor_quat), ref_anchor_quat))
 
 
-ANCHOR_OBS_DIM = 9
+ANCHOR_OBS_DIM = 6
 
 
 def flatten_history_term_major(hist: torch.Tensor) -> torch.Tensor:
@@ -64,6 +61,13 @@ class ReferenceFrame:
 class TerminationCfg:
     height_threshold: float = .25
     tilt_threshold: float = .8  # absolute difference of projected-gravity z components
+    height_temperature: float = .02  # metres; imagination only
+    tilt_temperature: float = .04  # gravity-z difference; imagination only
+
+    def __post_init__(self):
+        values = (self.height_threshold, self.tilt_threshold, self.height_temperature, self.tilt_temperature)
+        if any(not math.isfinite(v) or v <= 0 for v in values):
+            raise ValueError("Termination thresholds and temperatures must be finite and positive")
 
 
 class AnalyticHeads:
@@ -155,6 +159,15 @@ class AnalyticHeads:
     def terminated(self, s: torch.Tensor, ref: ReferenceFrame) -> torch.Tensor:
         f = self.termination_features(s[..., 0:3], s[..., 3:7], ref)  # pelvis == free-joint root
         return (f.abs() > 1.).any(-1)
+
+    def soft_termination(self, s: torch.Tensor, ref: ReferenceFrame) -> torch.Tensor:
+        """Smooth OR of the two hard failure thresholds; timeouts are not failures."""
+        cfg = self.termination_cfg
+        f = self.termination_features(s[..., 0:3], s[..., 3:7], ref).abs()
+        z = (f[..., 0] - 1.) * (cfg.height_threshold / cfg.height_temperature)
+        tilt = (f[..., 1] - 1.) * (cfg.tilt_threshold / cfg.tilt_temperature)
+        # 1 - sigmoid(-z)*sigmoid(-tilt), without cancellation near zero failure probability.
+        return -torch.expm1(F.logsigmoid(-z) + F.logsigmoid(-tilt))
 
     @staticmethod
     def root_error_features(s: torch.Tensor, ref: ReferenceFrame) -> torch.Tensor:

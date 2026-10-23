@@ -1,6 +1,6 @@
 # SuperMimic A3
 
-独立的 A3 Ultra SuperMimic 训练仓库，导出自 2026-10-23 的 **v8 / e5 四卡刚性版本**。
+独立的 A3 Ultra SuperMimic 训练仓库，当前为 **v9 四卡刚性版本**，基于 v8 / e5 更新。
 包含训练、世界模型、A3 仿真适配、机器人 MJCF/mesh、SwanLab、评测与策略导出。
 不需要原来的 MimicLite 工作区，不包含训练数据、checkpoint 或凭据。
 
@@ -69,6 +69,7 @@ A3_SM_SWANLAB_MODE=disabled NPROC_PER_NODE=1 ENVS_PER_GPU=128 \
 | GPU / 每卡环境数 / 全局环境数 | 4 / 4096 / 16384 |
 | Actor、WM 每卡 batch / 全局 batch | 2048 / 8192 |
 | UTD / 每轮 WM batch 数 / actor 更新数 | 0.4 / 10 / 1 |
+| WM-only 预训练 | 500 轮 WM 更新；每轮 10 个 minibatch，actor/critic 冻结 |
 | WM 序列长度 k / 想象长度 H / 未来参考 K | 8 / 32 / 10 |
 | 基础 LR / 四卡有效初始 LR | 2e-4 / 4e-4（乘 √4） |
 | 总 iteration / 日志间隔 / 保存间隔 | 320000 / 50 / 500 |
@@ -84,9 +85,15 @@ A3_SM_SWANLAB_MODE=disabled NPROC_PER_NODE=1 ENVS_PER_GPU=128 \
 - 原生刚性 29 轴 A3 Ultra，头部/手指固定中立位，无弹性踝转子、动作延迟。
   保留标称质量、惯量、碰撞几何、PD、力矩限制和动作缩放。
 - 物理 200 Hz，控制 50 Hz，平地，Newton solver / 50 iterations，`mjlab_njmax=1024`。
-- 状态 71、动力学预测 70、context 33、动作 29；历史输入 930、目标输入 689。
+- 状态 71、动力学预测 70、context 33、动作 29；历史输入 930、目标输入 686（680 维参考序列＋6D 相对姿态）。
 - e5 原始 `tanh(MLP(goal × scale))` 编码器、32 维 latent；无 LayerNorm 或辅助重构目标，actor 仅优化 `-J/H`。
 - 奖励和目标反馈锚点均为 `torso_Link`；终止检查根部高度偏差 >0.25 m 或重力 z 分量差 >0.8，根部为 `pelvis_link`。
+- 目标反馈只包含参考 torso 相对机器人 torso 的旋转矩阵前两列，按行展开；不包含机器人位置误差。
+  真机需要躯干姿态估计、IMU 外参和初始航向对齐。参考序列仍包含参考高度/速度，critic 仍使用训练特权状态。
+- 想象终止为两个 sigmoid 失败概率的软 OR，高度/倾斜软化宽度分别为 0.02 m / 0.04；真实仿真仍按硬阈值终止。
+  WM 不再训练终止 MLP/BCE，只拟合多步动力学状态误差。
+- 先采集 40 个环境步填充 replay，再执行 500 轮 WM-only 更新（每轮 10 个 minibatch）；第 501 轮起更新 actor/critic。
+  预训练期间继续采集动作探索数据；UTD 保持 0.4。SwanLab 记录 `train/wm_only`、`train/updates`、`train/policy_updates`。
 - WM hidden `(2048,2048,2048)`；encoder/decoder hidden `(2048,1024,512,256)`。
 - 随机化：启动时躯干 COM、reset 时脚底摩擦与编码器偏置；保留动作/观测噪声和 reset 位姿/速度扰动。无运行中推力。
 - 真实环境从参考动作 reset；actor 想象起点来自 replay。Reset 采样为 50% 均匀、40% 当前困难权重、10% 历史困难权重。
@@ -143,7 +150,8 @@ a3-sm-eval --checkpoint /path/to/ckpt_latest.pt --npz-dir /path/to/eval_npz \
 ```
 
 恢复包含网络、optimizer、采样统计和进度；仿真/replay 会重新初始化并 warmup。
-合约版本为 v8，旧 v7 checkpoint 不兼容；数据、机器人或任务配置不一致也会拒绝恢复。
+合约版本为 v9，旧 v8 及更早 checkpoint 不兼容；数据、机器人或任务配置不一致也会拒绝恢复。
+恢复会保留已完成 WM 更新和策略更新次数；重新填充 replay 不会重新执行已经完成的 500 轮 WM-only。
 评测关闭动作/观测/reset 噪声和 domain randomization，并分别报告完整动作长度归一化回报与执行步归一化回报。
 
 ## 自检

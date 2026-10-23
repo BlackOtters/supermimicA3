@@ -5,7 +5,7 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export DATA_DIR="${DATA_DIR:-$repo/data/lafan_filtered_v2}"
 export NPROC_PER_NODE="${NPROC_PER_NODE:-4}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
-export RUN_NAME="${RUN_NAME:-a3_supermimic_lafan_v8_4gpu_$(date +%Y%m%d_%H%M%S)}"
+export RUN_NAME="${RUN_NAME:-a3_supermimic_lafan_v9_4gpu_$(date +%Y%m%d_%H%M%S)}"
 if [[ "$NPROC_PER_NODE" != 4 ]]; then
   echo 'This LAFAN entrypoint requires NPROC_PER_NODE=4.' >&2; exit 1
 fi

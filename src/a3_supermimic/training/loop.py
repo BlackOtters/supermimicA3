@@ -21,6 +21,7 @@ from a3_supermimic.training.schedule import cosine_lr
 from a3_supermimic.training.tracking import SwanLabLogger, tracking_error_message
 from a3_supermimic.robot import BASE_TASK, UPSTREAM_COMMIT, POLICY_JOINTS, CONTRACT_VERSION, TRACKING_ANCHOR, check_contract_version
 from a3_supermimic.imagination.rollout import OBS_NOISE_HALF
+from a3_supermimic.world_model.heads import ANCHOR_OBS_DIM
 
 
 class Trainer:
@@ -35,7 +36,7 @@ class Trainer:
         if torch.device(cfg.device).type == "cuda":
             torch.cuda.set_device(cfg.device)
         torch.manual_seed(cfg.seed+1000*self.rank)
-        cfg.policy.goal_dim = 68*cfg.env.future_frames + (9 if cfg.env.anchor_obs else 0)
+        cfg.policy.goal_dim = 68*cfg.env.future_frames + (ANCHOR_OBS_DIM if cfg.env.anchor_obs else 0)
         cfg.policy_trainer.future_frames = cfg.env.future_frames
         cfg.policy_trainer.history = cfg.policy.history
         cfg.policy_trainer.anchor_obs = cfg.env.anchor_obs
@@ -44,6 +45,8 @@ class Trainer:
             raise ValueError("Replay capacity must exceed the WM window; horizon must be positive")
         if cfg.schedule.warmup_iterations < cfg.wm_trainer.window:
             raise ValueError("Warmup must fill a complete world-model window")
+        if cfg.schedule.wm_only_updates < 0 or cfg.schedule.policy_updates_per_wm_update < 1:
+            raise ValueError("WM-only updates must be nonnegative; policy updates per round must be positive")
         if cfg.policy_trainer.batch_size*cfg.policy_trainer.horizon < cfg.policy_trainer.critic_minibatches:
             raise ValueError("Critic minibatches would be empty")
         self.files = discover_npz(cfg.data.npz_dir, limit=cfg.data.limit, names=cfg.data.clips)
@@ -77,17 +80,21 @@ class Trainer:
                          "joint_order": POLICY_JOINTS, "data_sha256": self.lib.fingerprint,
                          "task": task, "history": cfg.policy.history,
                          "goal_dim": cfg.policy.goal_dim, "anchor_obs": cfg.env.anchor_obs,
+                         "anchor_observation": "relative_orientation_rot6d_row_major" if cfg.env.anchor_obs else "none",
                          "observation_anchor": cfg.env.observation_anchor,
                          "representation": cfg.env.representation, "policy_config": asdict(cfg.policy),
                          "state_spec": asdict(cfg.world_model.state_spec),
                          "termination": asdict(cfg.env.termination), "reset": asdict(cfg.env.reset),
+                         "imagination_termination": "analytic_sigmoid_or",
+                         "wm_only_updates": cfg.schedule.wm_only_updates,
+                         "wm_batches_per_update": cfg.wm_trainer.batches_per_update,
                          "observation_noise_half": OBS_NOISE_HALF.tolist(),
                          "action_semantics": {"actor_history": "clean", "action_rate": "clean",
                                               "dynamics_input": "executed", "delay_state": "executed"},
                          "terrain_features": self.sim.terrain is not None,
                          "tracking_anchor": TRACKING_ANCHOR, "reward": asdict(self.sim.heads.reward_cfg)}
         self.contract_digest = hashlib.sha256(json.dumps(self.contract, sort_keys=True).encode()).hexdigest()
-        self.iteration = self.num_updates = 0
+        self.iteration = self.num_updates = self.num_policy_updates = 0
         self.utd_acc = 0.
         self.writer = SummaryWriter(str(self.log_dir/"tb")) if self.rank == 0 else None
         if cfg.resume is not None:
@@ -103,6 +110,7 @@ class Trainer:
             return
         path = self.log_dir/name
         payload = {"iteration": self.iteration, "num_updates": self.num_updates, "utd_acc": self.utd_acc,
+                   "num_policy_updates": self.num_policy_updates,
                    "config": asdict(self.cfg), "contract": self.contract, "contract_sha256": self.contract_digest,
                    "wm": self.wm.state_dict(), "policy": self.policy.state_dict(), "critic": self.critic.state_dict(),
                    "wm_opt": self.wm_trainer.opt.state_dict(), "policy_opt": self.policy_trainer.opt.state_dict(),
@@ -126,6 +134,30 @@ class Trainer:
         self.sim.command.bin_return.copy_(ck["bin_return"])
         self.sim.command.bin_memory.copy_(ck["bin_memory"])
         self.iteration, self.num_updates, self.utd_acc = ck["iteration"], ck["num_updates"], ck["utd_acc"]
+        self.num_policy_updates = ck["num_policy_updates"]
+
+    def update(self):
+        """One scheduled WM round, followed by actor/critic only after WM-only warmup."""
+        cfg, sch = self.cfg, self.cfg.schedule
+        lr = cosine_lr(self.iteration, sch.total_iterations, cfg.wm_trainer.lr,
+                       sch.lr_final_ratio, sch.lr_decay_fraction)
+        self.wm_trainer.set_lr(lr)
+        self.policy_trainer.set_lr(lr*cfg.policy_trainer.lr/cfg.wm_trainer.lr)
+        wm_metrics = self.wm_trainer.update(self.buffer)
+        policy_active = self.num_updates >= sch.wm_only_updates
+        pi_metrics = {}
+        if policy_active:
+            for _ in range(sch.policy_updates_per_wm_update):
+                pi_metrics = self.policy_trainer.update(self.buffer)
+                self.num_policy_updates += 1
+        self.num_updates += 1
+        metrics = {**{f"wm/{k}": v for k, v in wm_metrics.items()},
+                   **{f"policy/{k}": v for k, v in pi_metrics.items()}, "lr": lr,
+                   "train/wm_only": float(not policy_active),
+                   "train/wm_only_remaining_updates": max(0, sch.wm_only_updates-self.num_updates)}
+        if not all(math.isfinite(v) for v in metrics.values()):
+            raise FloatingPointError(f"Nonfinite training metrics at iteration {self.iteration}")
+        return metrics
 
     def run(self):
         cfg, sch = self.cfg, self.cfg.schedule
@@ -162,24 +194,15 @@ class Trainer:
                     self.utd_acc += sch.updates_per_env_step
                     while self.utd_acc >= 1.:
                         self.utd_acc -= 1.
-                        lr = cosine_lr(self.iteration, sch.total_iterations, cfg.wm_trainer.lr,
-                                       sch.lr_final_ratio, sch.lr_decay_fraction)
-                        self.wm_trainer.set_lr(lr)
-                        self.policy_trainer.set_lr(lr*cfg.policy_trainer.lr/cfg.wm_trainer.lr)
-                        wm_metrics = self.wm_trainer.update(self.buffer)
-                        for _ in range(sch.policy_updates_per_wm_update):
-                            pi_metrics = self.policy_trainer.update(self.buffer)
-                        self.num_updates += 1
-                        metrics = {**{f"wm/{k}": v for k, v in wm_metrics.items()},
-                                   **{f"policy/{k}": v for k, v in pi_metrics.items()}, "lr": lr}
-                        if not all(math.isfinite(v) for v in metrics.values()):
-                            raise FloatingPointError(f"Nonfinite training metrics at iteration {self.iteration}")
+                        metrics = self.update()
                 if self.iteration % sch.log_interval == 0:
                     elapsed = time.monotonic()-start
                     ret_sum, count = allreduce_mean(sum(recent_returns)), allreduce_mean(len(recent_returns))
                     metrics.update({"train/episode_normalized_return": ret_sum/count if count else 0.,
                                     "train/finished_episodes": count*self.world, "time/hours": elapsed/3600,
-                                    "train/updates": self.num_updates, "replay/transitions": self.buffer.size})
+                                    "train/updates": self.num_updates,
+                                    "train/policy_updates": self.num_policy_updates,
+                                    "replay/transitions": self.buffer.size})
                     tracking_error = None
                     if self.rank == 0:
                         for key, value in metrics.items():
@@ -190,9 +213,13 @@ class Trainer:
                             tracker.log(metrics, step=self.iteration)
                         except Exception as error:
                             tracking_error = tracking_error_message(error)
-                        print(f"it={self.iteration} updates={self.num_updates} "
-                              f"wm_loss={metrics.get('wm/loss', float('nan')):.4g} "
-                              f"actor_grad={metrics.get('policy/policy_grad_norm', float('nan')):.4g}", flush=True)
+                        phase = ("replay_fill" if collected < sch.warmup_iterations else
+                                 "wm_only" if self.num_policy_updates == 0 and sch.wm_only_updates else "joint")
+                        wm_loss = f"{metrics['wm/loss']:.4g}" if 'wm/loss' in metrics else "pending"
+                        actor_grad = f"{metrics['policy/policy_grad_norm']:.4g}" if 'policy/policy_grad_norm' in metrics else "pending"
+                        print(f"it={self.iteration} phase={phase} updates={self.num_updates} "
+                              f"policy_updates={self.num_policy_updates} wm_loss={wm_loss} "
+                              f"actor_grad={actor_grad}", flush=True)
                     if allreduce_mean(float(tracking_error is not None)):
                         raise RuntimeError(f"SwanLab metric logging failed ({tracking_error or 'see rank 0'}); local JSONL is preserved")
                     recent_returns.clear()

@@ -49,3 +49,12 @@ Third-party framework code and robot assets retain their original ownership and
 terms; that MIT notice does not relicense them. This export does not assign a
 new blanket license to the entire collection. Refer to the original component
 repositories for their distribution terms.
+# v9 training changes (2026-10-23)
+
+The analytic sigmoid-OR termination widths (0.02 m / 0.04) and 500 WM-only
+update-round warmup are inspired by the documented choices in
+[zita-ch/supermimic_vibed](https://github.com/zita-ch/supermimic_vibed).
+The implementation uses stable log-sigmoid/expm1 arithmetic. It retains this
+repository's torso anchor and goal encoder placement while removing the three
+position-feedback inputs. It does not adopt that project's simulator, collision
+filtering, BF16, or other observation/critic architecture changes.

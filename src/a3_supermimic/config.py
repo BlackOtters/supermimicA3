@@ -36,7 +36,7 @@ class EnvCfg:
     sampling_mode: str = "return"
     replay_capacity: int = 1000
     future_frames: int = 10
-    anchor_obs: bool = True
+    anchor_obs: bool = True  # 6D reference-relative orientation, no position feedback
     observation_anchor: str = "torso_Link"  # e5 uses the torso for both goal feedback and rewards
     terrain: str = "plane"  # upstream training terrain; inherit is an explicit A3 rough-terrain opt-in
     evaluation_physics: str = "rigid"  # legacy name: topology for training and evaluation; DR is independent
@@ -48,6 +48,7 @@ class ScheduleCfg:
     updates_per_env_step: float = 0.4  # UTD
     policy_updates_per_wm_update: int = 1
     warmup_iterations: int = 40  # env steps before the first update (fills k-step windows)
+    wm_only_updates: int = 500  # complete WM update rounds before the first actor/critic update
     lr_final_ratio: float = 0.03
     lr_decay_fraction: float = 250_000 / 320_000
     log_interval: int = 50  # iterations

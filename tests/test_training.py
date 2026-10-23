@@ -95,7 +95,7 @@ def test_world_model_fit_and_frozen_model_actor_update(robot, motion):
     q0 = torch.zeros(29)
     lib = MotionLibrary([motion], model, layout, fk, fk.body_indices(TRACKED_BODIES), q0, allow_synthetic=True)
     heads = AnalyticHeads(fk, TRACKED_BODIES, TRACKING_ANCHOR, "pelvis_link", torch.tensor([[-3., 3.]]*29), q0, layout=layout)
-    wm = WorldModel(WorldModelCfg(hidden=(32, 32), term_hidden=(16,)), heads, "cpu", torch.zeros(34), torch.ones(34))
+    wm = WorldModel(WorldModelCfg(hidden=(32, 32)), heads, "cpu", torch.zeros(34), torch.ones(34))
     buffer = ReplayBuffer(32, 4, layout.state_dim, 34, "cpu")
     buffer.register_context(torch.arange(4), torch.zeros(4, 34))
     for t in range(16):

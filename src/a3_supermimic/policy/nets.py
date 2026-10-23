@@ -26,7 +26,7 @@ class PolicyCfg:
     # Fixed goal feature scales: joint_pos 29, joint_vel 29, grav 3, ang_vel_b 3, lin_vel_h 3, height 1.
     goal_term_scale: tuple[float, ...] = (1.0, 5.0, 1.0, 2.0, 1.0, 1.0)
     decoder_last_gain: float = 0.01
-    goal_dim: int = GOAL_DIM  # 680 (+9 with anchor_obs)
+    goal_dim: int = GOAL_DIM  # 680 (+6 with anchor_obs)
 
 
 @dataclass

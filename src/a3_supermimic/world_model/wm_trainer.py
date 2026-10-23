@@ -48,12 +48,7 @@ class WorldModelTrainer:
             g["lr"] = lr
 
     def loss_on(self, w: WindowBatch):
-        k, n = w.frame.shape
-        # Only the root pose of the references is needed for the termination features.
-        r = self.lib.ref(w.frame.reshape(-1))
-        refs = [ReferenceFrame(None, None, None, None, r.root_pos_w[j * n : (j + 1) * n],
-                               r.root_quat_w[j * n : (j + 1) * n]) for j in range(k)]
-        return self.wm.window_loss(w.states, w.a_exec, w.xi, w.done, refs)
+        return self.wm.window_loss(w.states, w.a_exec, w.xi)
 
     def _fail(self, reason, w, loss, batch_index, *, grad_norm=None, local_grad_finite=None):
         path = None

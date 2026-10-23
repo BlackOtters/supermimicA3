@@ -35,7 +35,7 @@ class PolicyTrainerCfg:
     use_critic: bool = True
     obs_noise: bool = True
     compile: str | None = "default"
-    anchor_obs: bool = False  # None | "default" | "reduce-overhead" | "max-autotune-no-cudagraphs"
+    anchor_obs: bool = False  # Append 6D reference-relative anchor orientation to the goal.
 
 
 class PolicyTrainer:

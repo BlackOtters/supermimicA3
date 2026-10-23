@@ -1,5 +1,26 @@
 # Validation
 
+## v9 update, 2026-10-23
+
+- CPU suite: **59 passed** in 23.42 s, including analytic soft-termination
+  threshold/gradient checks, 6D feedback parity and translation independence,
+  the 500/501 WM-update boundary, frozen actor/critic and checkpoint counters.
+- Compiled CUDA smoke on local RTX 4090: passed with 8 environments and compact
+  test networks. Saved mid-WM-only warmup, resumed through the transition, then
+  evaluated and exported TorchScript. 100 environment iterations, 8 WM rounds,
+  5 warmup rounds and 3 actor/critic updates; goal width 686, contract 9.
+- CPU four-rank configuration: 500 WM-only rounds / 5,000 optimizer steps per
+  rank, global 16,384 environments and 8,192 actor/WM batch; effective LR 4e-4.
+- An initial combined CPU test invocation encountered a native segmentation
+  fault during import/garbage collection. The isolated v9 checks, configuration
+  check, full-suite rerun and compiled train/resume/eval all completed afterward.
+
+The smoke uses a synthetic standing fixture and shortened warmup; it verifies
+execution, not tracking quality. No four-GPU production run was launched for
+this update. See [LAFAN v9 configuration](docs/lafan_training.md).
+
+## Original v8 standalone export
+
 Validated on 2026-10-23. These checks establish execution and configuration
 parity, not reproduction of the upstream G1 tracking scores.
 

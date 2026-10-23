@@ -32,7 +32,6 @@ def main():
     cfg.env.replay_capacity = 64
     cfg.env.episode_length_s = .24
     cfg.world_model.hidden = (32, 32)
-    cfg.world_model.term_hidden = (16,)
     cfg.policy.encoder_hidden = cfg.policy.decoder_hidden = (32,)
     cfg.critic.hidden = (16,)
     cfg.wm_trainer.batch_size = cfg.policy_trainer.batch_size = 8
@@ -42,12 +41,22 @@ def main():
     cfg.policy_trainer.critic_minibatches = 2
     cfg.wm_trainer.compile = cfg.policy_trainer.compile = "default" if args.compile else None
     cfg.schedule.total_iterations = 50
+    cfg.schedule.wm_only_updates = 5  # Save mid-warmup, then cross the boundary after resume.
     cfg.schedule.log_interval = 10
     cfg.schedule.checkpoint_interval = 50
     trainer = Trainer(cfg)
     assert trainer.sim.layout.state_dim == 71 and trainer.sim.xi.shape[-1] == 33
     assert trainer.sim.env.sim.mj_model.ntendon == 0
+    assert cfg.policy.goal_dim == 686
+    actor_before = {k: v.clone() for k, v in trainer.policy.state_dict().items()}
+    critic_before = {k: v.clone() for k, v in trainer.critic.state_dict().items()}
     trainer.run()
+    assert 0 < trainer.num_updates < cfg.schedule.wm_only_updates
+    assert trainer.num_policy_updates == 0
+    assert not trainer.policy_trainer.opt.state and not trainer.policy_trainer.critic_opt.state
+    for module, before in ((trainer.policy, actor_before), (trainer.critic, critic_before)):
+        for key, value in module.state_dict().items():
+            torch.testing.assert_close(value, before[key], rtol=0, atol=0)
     checkpoint = args.output / "train/ckpt_latest.pt"
     saved = torch.load(checkpoint, map_location="cuda:0", weights_only=False)
     resumed_cfg = restore_config(saved["config"])
@@ -59,12 +68,14 @@ def main():
         torch.testing.assert_close(value, saved["policy"][key], rtol=0, atol=0)
     resumed.run()
     assert resumed.num_updates > saved["num_updates"] > 0
+    assert resumed.num_policy_updates == resumed.num_updates - cfg.schedule.wm_only_updates > 0
     checkpoint = args.output / "resume/ckpt_latest.pt"
     saved = torch.load(checkpoint, map_location="cuda:0", weights_only=False)
     report = evaluate(restore_config(saved["config"]), saved, [fixture], "rigid",
                       export=args.output / "actor.pt")
     result = {"synthetic_fixture": True, "iterations": resumed.iteration,
               "updates": resumed.num_updates, "contract": saved["contract"]["version"],
+              "policy_updates": resumed.num_policy_updates, "goal_dim": saved["config"]["policy"]["goal_dim"],
               "model_fingerprint": saved["contract"]["robot"]["fingerprint"],
               "compiled": args.compile, "evaluation": report,
               "module_files": {name: str(module.__file__) for name, module in sys.modules.items()

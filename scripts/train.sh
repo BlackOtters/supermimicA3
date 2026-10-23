@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# One process per GPU; default recipe reproduces v8's four-GPU e5 alignment.
+# One process per GPU; v9 adds analytic termination, WM-only warmup and 6D feedback.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python_bin="${PYTHON:-$repo/.venv/bin/python}"
 if [[ ! -x "$python_bin" ]]; then python_bin="${PYTHON:-python3}"; fi
 export PYTHONPATH="$repo/src${PYTHONPATH:+:$PYTHONPATH}"
 export NPROC_PER_NODE="${NPROC_PER_NODE:-4}"
-export RUN_NAME="${RUN_NAME:-a3_supermimic_e5_v8_${NPROC_PER_NODE}gpu_$(date +%Y%m%d_%H%M%S)}"
+export RUN_NAME="${RUN_NAME:-a3_supermimic_v9_${NPROC_PER_NODE}gpu_$(date +%Y%m%d_%H%M%S)}"
 export HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1 PYTHONUNBUFFERED=1
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}" OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 export TORCHINDUCTOR_COMPILE_THREADS="${TORCHINDUCTOR_COMPILE_THREADS:-2}"
@@ -28,6 +28,7 @@ recipe=(
   --wm-trainer.lr 0.0002 --policy-trainer.lr 0.0002 --policy-trainer.critic-lr 0.0002
   --lr-world-size 1 --schedule.total-iterations "${TOTAL_ITERATIONS:-320000}"
   --schedule.log-interval 50 --schedule.checkpoint-interval 500
+  --schedule.wm-only-updates 500
 )
 if [[ -n "${RESUME:-}" ]]; then
   recipe=(--resume "$RESUME" --run-name "$RUN_NAME" --log-root "$log_root"

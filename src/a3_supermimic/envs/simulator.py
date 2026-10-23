@@ -15,7 +15,7 @@ from active_adaptation.envs.backends.mjlab.env import MjlabBackendEnv
 from a3_supermimic.kinematics.model import ModelKinematics
 from a3_supermimic.kinematics.rotations import quat_apply
 from a3_supermimic.envs.mdp.reset import ResetCfg, reset_reference
-from a3_supermimic.world_model.heads import AnalyticHeads, flatten_history_term_major, anchor_relative_obs
+from a3_supermimic.world_model.heads import AnalyticHeads, flatten_history_term_major, anchor_relative_orientation
 from a3_supermimic.world_model.wm_trainer import reference_at
 from a3_supermimic.envs.mdp.motion_library import MotionLibrary
 from a3_supermimic.envs.context import SimContext, CompactSimContext, TerrainFeatures
@@ -249,7 +249,7 @@ class Simulator:
             bodies = self.heads.robot_bodies(self.state())
             ref = self.library.bodies(self.command.frame)
             ai = self.heads.observation_anchor_index
-            extra = anchor_relative_obs(bodies["pos"][:, ai], bodies["quat"][:, ai], ref.pos_w[:, ai], ref.quat_w[:, ai])
+            extra = anchor_relative_orientation(bodies["quat"][:, ai], ref.quat_w[:, ai])
             if self.cfg.env.obs_noise:
                 extra += (torch.rand_like(extra)*2-1)*ANCHOR_NOISE_HALF.to(self.device)
             goal = torch.cat((goal, extra), -1)

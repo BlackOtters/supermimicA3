@@ -33,7 +33,7 @@ def main():
     cfg.env.replay_capacity = 32
     cfg.env.episode_length_s = .24
     cfg.env.reset_noise = True
-    cfg.world_model.hidden = (32, 32); cfg.world_model.term_hidden = (16,)
+    cfg.world_model.hidden = (32, 32)
     cfg.policy.encoder_hidden = cfg.policy.decoder_hidden = (32,)
     cfg.critic.hidden = (16,)
     cfg.wm_trainer.compile = cfg.policy_trainer.compile = "default" if args.compile else None
@@ -41,6 +41,7 @@ def main():
     cfg.policy_trainer.horizon = 3; cfg.policy_trainer.batch_size = 4
     cfg.policy_trainer.critic_epochs = 1; cfg.policy_trainer.critic_minibatches = 2
     cfg.schedule.total_iterations = 20; cfg.schedule.warmup_iterations = 8
+    cfg.schedule.wm_only_updates = 2
     cfg.schedule.log_interval = 2; cfg.schedule.checkpoint_interval = 10
     trainer = Trainer(cfg)
     sim = trainer.sim
