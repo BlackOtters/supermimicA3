@@ -13,12 +13,14 @@ parity, not reproduction of the upstream G1 tracking scores.
 | Checkpoint save/restore and continued updates | Pass; exact restored policy weights, 100 total iterations / 8 updates |
 | Rigid evaluation and TorchScript export | Pass; outputs produced |
 | Four-rank launcher configuration | 16,384 global environments, 8,192 actor/WM batch, effective initial LR 4e-4 |
+| Pinned dependency resolution | Pass; pip dry-run with installed packages ignored, using PyPI |
 
 Reproduction commands after installation:
 
 ```bash
 python -m pytest tests -q --disable-warnings
 bash scripts/train.sh --check-config
+python -m pip install --dry-run --ignore-installed -r requirements.txt --index-url https://pypi.org/simple
 # After checking that a GPU is idle:
 python scripts/smoke.py --output /tmp/supermimic_a3_smoke_unique --compile
 ```
