@@ -1,0 +1,31 @@
+{
+  "synthetic_fixture": true,
+  "iterations": 100,
+  "updates": 8,
+  "contract": 8,
+  "model_fingerprint": "1a89cba59f5762955fce81e4d9088d5307f688093c0006f5808f92be062294ee",
+  "compiled": true,
+  "evaluation": {
+    "physics": "rigid",
+    "domain_randomization": false,
+    "observation_noise": false,
+    "terrain": "plane",
+    "sliding_friction": 1.0,
+    "synthetic_fixture": true,
+    "mean_normalized_return": 0.3416156838648021,
+    "failures": 1,
+    "clips": [
+      {
+        "clip": "standing",
+        "normalized_return": 0.3416156838648021,
+        "executed_step_normalized_return": 0.5465850941836834,
+        "failure": true,
+        "steps": 80,
+        "total_clip_frames": 128
+      }
+    ]
+  },
+  "internal_module_count": 125,
+  "all_internal_modules_from_installed_wheel": true,
+  "test_kind": "8-environment compact-network synthetic smoke, not a tracking benchmark"
+}

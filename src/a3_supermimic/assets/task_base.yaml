@@ -1,0 +1,272 @@
+name: A3UltraDepsicV2MixedAMP
+project: mimic_lite
+total_iters: 100000
+viewer:
+  resolution:
+  - 1280
+  - 720
+  lookat:
+  - 0.0
+  - 0.0
+  - 0.75
+  eye:
+  - 4.0
+  - 4.0
+  - 2.5
+terrain: rough
+enable_cameras: false
+num_envs: 4096
+max_episode_length: 1000
+sim:
+  step_dt: 0.02
+  isaac_physics_dt: 0.005
+  mjlab_physics_dt: 0.005
+  mjlab_njmax: 500
+  mjlab_solver: newton
+  mjlab_solver_iterations: 50
+robot:
+  name: a3-ultra-four-ankle-mixed
+input:
+  action:
+    _target_: mimic_lite.DepsicA3JointPosition
+    action_scaling:
+      waist_yaw_joint: 0.6470588235294118
+      waist_roll_joint: 0.23
+      waist_pitch_joint: 0.575
+      left_shoulder_pitch_joint: 0.375
+      left_shoulder_roll_joint: 0.375
+      left_shoulder_yaw_joint: 0.2
+      left_elbow_joint: 0.2
+      left_wrist_roll_joint: 0.2
+      left_wrist_pitch_joint: 0.075
+      left_wrist_yaw_joint: 0.075
+      right_shoulder_pitch_joint: 0.375
+      right_shoulder_roll_joint: 0.375
+      right_shoulder_yaw_joint: 0.2
+      right_elbow_joint: 0.2
+      right_wrist_roll_joint: 0.2
+      right_wrist_pitch_joint: 0.075
+      right_wrist_yaw_joint: 0.075
+      left_hip_pitch_joint: 0.6875
+      left_hip_roll_joint: 0.4583333333333333
+      left_hip_yaw_joint: 0.6875
+      left_knee_joint: 0.32
+      left_ankle_pitch_joint: 0.591
+      left_ankle_roll_joint: 0.27375
+      right_hip_pitch_joint: 0.6875
+      right_hip_roll_joint: 0.4583333333333333
+      right_hip_yaw_joint: 0.6875
+      right_knee_joint: 0.32
+      right_ankle_pitch_joint: 0.591
+      right_ankle_roll_joint: 0.27375
+    alpha: 1.0
+command: {}
+observation: {}
+reward: {}
+randomization:
+  depsic_joint_default_offset:
+    _target_: mimic_lite.depsic_joint_default_offset
+    low: -0.01
+    high: 0.01
+    joint_names:
+    - waist_.*_joint
+    - (?:left|right)_(?!.*_motor_joint$).*_joint
+  depsic_torso_mass_offset:
+    _target_: mimic_lite.depsic_torso_mass_offset
+    low: -5.0
+    high: 5.0
+    torso_body_name: torso_Link
+    _enabled_: false
+  perturb_body_materials:
+    body_names: ^(?!.*head.*).+$
+    static_friction_range:
+    - 0.6
+    - 1.0
+    dynamic_friction_range:
+    - 0.4
+    - 0.8
+    restitution_range:
+    - 0.0
+    - 0.005
+    num_buckets: 64
+    homogeneous: false
+    _enabled_: false
+  perturb_root_vel:
+    min_s: 4.0
+    max_s: 6.0
+    x:
+    - -0.5
+    - 0.5
+    'y':
+    - -0.5
+    - 0.5
+    _target_: mimic_lite.depsic_a3_ultra_push
+    z:
+    - -0.2
+    - 0.2
+    roll:
+    - -0.52
+    - 0.52
+    pitch:
+    - -0.52
+    - 0.52
+    yaw:
+    - -0.78
+    - 0.78
+  s2r_mass_other_links:
+    _target_: mimic_lite.depsic_a3_ultra_body_mass_scale
+    body_names: ^(?!torso_Link$)(?!.*ankle_.*_rotor$).+$
+    low: 0.9
+    high: 1.1
+  s2r_mass_torso:
+    _target_: mimic_lite.depsic_a3_ultra_body_mass_scale
+    body_names: torso_Link
+    low: 0.8
+    high: 1.3
+  s2r_wrist_payload:
+    _target_: mimic_lite.depsic_a3_ultra_body_mass_add
+    body_names:
+    - left_wrist_yaw_Link
+    - right_wrist_yaw_Link
+    low: -0.2
+    high: 2.0
+    min_mass: 0.05
+  s2r_torso_com:
+    _target_: mimic_lite.depsic_a3_ultra_body_com
+    body_names:
+    - torso_Link
+    x:
+    - -0.025
+    - 0.025
+    'y':
+    - -0.05
+    - 0.05
+    z:
+    - -0.05
+    - 0.05
+  s2r_contact_friction:
+    _target_: mimic_lite.depsic_a3_ultra_contact_friction
+    body_names: ^(?!.*head.*).+$
+    static_friction_range:
+    - 0.3
+    - 1.6
+    num_buckets: 64
+    plane_only: false
+  s2r_joint_params:
+    _target_: mimic_lite.depsic_a3_ultra_joint_params
+    min_step_count_between_reset: 24000
+    groups:
+      regular:
+        joint_names:
+        - .*_hip_roll_joint
+        - .*_hip_yaw_joint
+        - .*_hip_pitch_joint
+        - .*_knee_joint
+        - waist_yaw_joint
+        - .*_shoulder_pitch_joint
+        - .*_shoulder_roll_joint
+        - .*_shoulder_yaw_joint
+        - .*_elbow_joint
+        - .*_wrist_roll_joint
+        - .*_wrist_pitch_joint
+        - .*_wrist_yaw_joint
+        armature_scale:
+        - 0.9
+        - 1.1
+        friction_scale:
+        - 1.0
+        - 3.0
+      ankle_waist:
+        joint_names:
+        - .*_ankle_pitch_joint
+        - .*_ankle_roll_joint
+        - waist_pitch_joint
+        - waist_roll_joint
+        armature_scale:
+        - 0.8
+        - 1.2
+        friction_scale:
+        - 1.0
+        - 3.0
+    randomize_armature: false
+  ankle_roll_elastic:
+    _target_: mimic_lite.depsic_ankle_roll_elastic
+    stiffness_range:
+    - 65.0
+    - 90.0
+    damping: 1.0
+    _enabled_: false
+  elastic_motor_dr:
+    _target_: mimic_lite.depsic_elastic_motor_dr
+    ankle_inertia_scale:
+    - 0.7
+    - 2.0
+    armature_scale:
+    - 0.5
+    - 1.5
+    kp_scale:
+    - 0.8
+    - 1.2
+    damping_ratio_scale:
+    - 0.5
+    - 2.0
+    delay_ms:
+    - 0.0
+    - 5.0
+    - 10.0
+    _enabled_: false
+  four_ankle_dr:
+    _target_: mimic_lite.depsic_four_ankle_dr
+    implicit_springs: true
+    rigid_probability: 0.25
+    pitch_k_range:
+    - 200.0
+    - 2000.0
+    roll_k_range:
+    - 65.0
+    - 400.0
+    k_distribution: log_uniform
+    pitch_d_range:
+    - 0.5
+    - 2.0
+    roll_d_range:
+    - 0.5
+    - 2.0
+    d_distribution: uniform
+    ankle_inertia_scale:
+    - 0.7
+    - 2.0
+    armature_scale:
+    - 0.5
+    - 1.5
+    kp_scale:
+    - 0.8
+    - 1.2
+    damping_ratio_scale:
+    - 0.5
+    - 2.0
+    delay_ms:
+    - 0.0
+    - 5.0
+    - 10.0
+termination: {}
+depsic_root_ang_vel_xy_only: true
+terrain_generator:
+  _target_: mimic_lite.assets.a3_ultra_s2r_plus.make_035_terrain
+  seed: 42
+  num_rows: 4
+  num_cols: 2
+terrain_contact:
+  friction:
+  - 1.0
+  - 1.0
+  - 0.005
+  solref:
+  - 0.005
+  - 1.0
+  solimp:
+  - 0.9
+  - 0.95
+  - 0.001
+  - 0.5
+  - 2.0
